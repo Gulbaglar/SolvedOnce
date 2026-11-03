@@ -1,0 +1,80 @@
+{
+  "_note": "Illustrative example. The library 'tinycsv' and this bug are fictional.",
+
+  "schema_version": "0.1",
+  "packet_id": "so_7f3k9q2m8x1v4b6n",
+  "created_at": "2026-11-03T06:40:00Z",
+
+  "scope": "public_library",
+
+  "target": {
+    "ecosystem": "PyPI",
+    "name": "tinycsv",
+    "affected_versions": ">=3.1.0,<3.1.2",
+    "fixed_in_version": null,
+    "upstream_repository": "https://github.com/example/tinycsv"
+  },
+
+  "environment": {
+    "os": "Windows 11 / also reproduced on Debian 13",
+    "runtime": "CPython 3.13",
+    "relevant_dependencies": { "tinycsv": "3.1.1" }
+  },
+
+  "problem": {
+    "title": "Trailing empty field is dropped when a row ends with the delimiter and the file uses CRLF line endings",
+    "symptom": "Rows ending in ';' return one column fewer than the header. Downstream code fails with 'row has 4 fields, expected 5'.",
+    "root_cause": "The 3.1.0 fast path strips '\\r\\n' with rstrip('\\r\\n;') instead of rstrip('\\r\\n'), so a final empty field after the delimiter is removed together with the line ending. LF-only files take a different code path and are unaffected.",
+    "error_signature": "ValueError: row has {n} fields, expected {n+1}"
+  },
+
+  "novelty_check": {
+    "model_solved_unaided": false,
+    "sources_checked": ["web_search", "upstream_issue_tracker", "release_notes", "solvedonce_index"],
+    "known_match_found": false,
+    "closest_known_references": [
+      "https://github.com/example/tinycsv/issues/412"
+    ]
+  },
+
+  "reproduction": {
+    "language": "python",
+    "setup": "python -m venv .venv && .venv/bin/pip install tinycsv==3.1.1 pytest==8.3.3",
+    "test_code": "import io\nimport tinycsv\n\ndef test_trailing_empty_field_crlf():\n    data = 'a;b;c\\r\\n1;2;\\r\\n'\n    rows = list(tinycsv.reader(io.StringIO(data, newline=''), delimiter=';'))\n    assert rows == [['a', 'b', 'c'], ['1', '2', '']]\n",
+    "run_command": ".venv/bin/pytest -q test_repro.py"
+  },
+
+  "fix": {
+    "kind": "upstream_patch",
+    "description": "Strip only the line terminator, never the delimiter. Workaround for users until released: pin tinycsv==3.0.4 or normalize CRLF to LF before parsing.",
+    "patch": "--- a/tinycsv/_fast.py\n+++ b/tinycsv/_fast.py\n@@ -88,7 +88,7 @@ def _split_line(line, delimiter):\n-    line = line.rstrip('\\r\\n' + delimiter)\n+    line = line.rstrip('\\r\\n')\n     return line.split(delimiter)\n"
+  },
+
+  "evidence": {
+    "before_fix": {
+      "exit_code": 1,
+      "outcome": "fail",
+      "output_excerpt": "AssertionError: assert [['a', 'b', 'c'], ['1', '2']] == [['a', 'b', 'c'], ['1', '2', '']]"
+    },
+    "after_fix": {
+      "exit_code": 0,
+      "outcome": "pass",
+      "output_excerpt": "1 passed in 0.02s"
+    },
+    "existing_test_suite_passed": true
+  },
+
+  "provenance": {
+    "authored_by": "model",
+    "agent": "example-agent",
+    "model": "example-model",
+    "scrubbing_tools": ["gitleaks", "presidio"]
+  },
+
+  "consent": {
+    "user_approved_final_packet": true,
+    "allow_public_release": true,
+    "allow_upstream_report": true,
+    "attribution": null
+  }
+}

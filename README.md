@@ -2,25 +2,40 @@
 
 [![validate](https://github.com/Gulbaglar/SolvedOnce/actions/workflows/validate.yml/badge.svg)](https://github.com/Gulbaglar/SolvedOnce/actions/workflows/validate.yml)
 
-**AI coding models are at risk of a knowledge freeze. The public sources they learned from are drying up, because people now ask AI instead of posting publicly. SolvedOnce is a proposed solution: a verified channel that feeds newly solved problems from agent sessions back into model training.**
+**Every day, developers and their AI assistants spend hours solving new software bugs in private sessions, and the fix stays there. The next developer who hits the same bug, often with a different assistant, solves it again from scratch. Over time, the same shift also shrinks the public sources that coding models learn from. SolvedOnce is a proposed solution: a verified channel that turns privately solved problems into shared knowledge, searchable by agents right away and usable for training later.**
 
 > Solved once by one user. Findable by every agent once verified, and learned by the next generation of models that take part.
 
 Author: Kahraman Gülbağlar · License: MIT · Status: Concept / RFC
 
 **TL;DR**
-- **Problem:** public developer Q&A, a key source of what coding models learned, is collapsing because developers now ask AI privately. New bugs get solved in private sessions and the knowledge is lost.
+- **Problem, today:** a new bug solved after hours of work in a private AI session usually stays in that session. Other developers hit the same bug and solve it again, independently.
+- **Problem, longer term:** public developer Q&A, a key source of what coding models learned, is shrinking because developers now ask AI privately. Future models may have less new public material to learn from.
 - **Proposal:** when an agent solves a genuinely new bug in public software, it writes a structured *fix packet*: minimal reproduction as a failing test, the fix, and fail→pass evidence.
 - **Verification:** packets are scrubbed, deduplicated, rate-limited, scanned, re-run in a sandbox, checked against the provider's own session records, and reviewed by humans. Nothing rests on trusting the user's machine.
 - **Use:** verified packets go to a retrieval index (agents find the fix right away), to the upstream project and an open archive (public knowledge again), and into training, with a held-out share kept as fresh evals.
 - **Vendor-neutral:** not written for any one company. The schema and tools are open (MIT); any AI provider, large or small, can adopt them, and packets are meant to be shareable between providers.
-- **Status:** design document, draft packet schema, a runnable worked example, a reference validator and a reference sandbox runner with signed results are in this repo, all tested in CI.
+- **Status:** an open research proposal, not a running service. A design document, draft packet schema, a runnable worked example, a reference validator and a reference sandbox runner with signed results are in this repo, all tested in CI. See [section 10](#10-what-this-repository-is-and-is-not) for what that does and does not prove.
 
 ---
 
-## 1. The problem: models are running out of new things to learn
+## 1. The problem
 
-Coding models learned from public Q&A. That public Q&A is disappearing because of the models themselves. Left alone, this loop ends with models that know everything up to a certain year and almost nothing after it.
+The problem has two parts. The first exists today and does not depend on any prediction about the future. The second is a longer-term risk that deserves research. SolvedOnce is worth exploring even if the second one never fully materializes.
+
+### 1.1 Today: the same problem gets solved again and again
+
+When developers used to hit a new bug, they asked on Stack Overflow, GitHub issues or a forum. Once it was solved, the answer usually stayed public, and the next person with the same bug found it.
+
+Today a developer is more likely to work through the bug with an AI assistant. That can take hours, sometimes a whole day: reproducing, trying fixes that do not work, testing. In the end the bug is solved, but the result usually stays in a private conversation. A developer in another country who hits the same bug a week later, with the same or a different assistant, may find nothing, and the problem is researched, tested and solved again from the beginning.
+
+This is not an absolute loss of knowledge. Some providers may use conversations for model improvement, within their permissions and policies. But that does not make a verified fix promptly and reliably available to other developers, other assistants, or even the same assistant a week later.
+
+SolvedOnce aims to keep verified fixes from disappearing into private sessions and to turn them into reusable shared knowledge.
+
+### 1.2 Longer term: models are running out of new things to learn
+
+Coding models learned from public Q&A. That public Q&A is disappearing because of the models themselves. Left alone, this loop could end with models that know a lot up to a certain year and much less after it.
 
 Public developer knowledge is drying up at the source, and this is measured, not assumed:
 
@@ -54,6 +69,13 @@ The packet is scrubbed, deduplicated, rate-limited, scanned, executed in a sandb
 | **As soon as reviewed** (hours to days) | A searchable index of verified packets (retrieval) | Every agent can find the fix long before any retraining |
 | **Days to weeks** | The upstream project's issue tracker, and an open public archive | The library gets fixed, and the knowledge stays public for humans and every model, not one provider |
 | **Next model release** | Training corpus, plus a held-out eval set | The knowledge becomes part of the model itself, and new models are measured on bugs they never saw |
+
+These are two different mechanisms, and they should not be confused:
+
+- **Short term, shared memory (retrieval):** a verified fix is added to a searchable pool. Before an agent tries to work out a fix from scratch, it can look the problem up there. This helps the models that exist today.
+- **Long term, training:** suitable packets can be used in future training and evaluation runs. This helps the next model generations.
+
+Adding a packet to the shared pool does **not** update any model's weights. A model only "learns" the fix in the training sense at its next regular training cycle, if the packet is admitted at all (see (I)).
 
 ### Scope: only problems other people will also hit
 
@@ -256,10 +278,14 @@ Nothing here is provider-specific. A shared, open packet schema (problem, enviro
 
 ## 8. Incentives: why would anyone do this?
 
-**Users.** Approving a packet costs ten seconds, but there should still be a reason:
+**Users.** Approving a packet costs ten seconds, but a developer who just spent a day on a bug may still not want to share it: it takes attention, and they may worry about privacy. So there should be a reason. Possible mechanisms:
 - Public credit: optional attribution on the archive entry and the upstream issue, like a Stack Overflow answer or a merged PR.
-- Small usage credits or extended limits per accepted packet (accepted, not submitted, so spam earns nothing).
+- Digital badges and community recognition for verified contributions.
+- A reputation score built from the history of accepted packets (which also feeds the trust-weighted quotas in (D)).
+- Small usage credits or extended limits that a provider may choose to offer per accepted packet.
 - The practical reward: the next time anyone, including them, hits that bug, it is already solved.
+
+Two rules apply to all of these. Rewards are given only **after** verification and review (accepted, not submitted), so fake or low-quality submissions earn nothing. And none of them is guaranteed: whether and how to reward contributors is a decision for each platform that adopts the approach.
 
 **Providers.** The honest tension: verified fix data is a competitive asset, and a provider may prefer to keep it private. Arguments for the open version anyway:
 - All providers face the same knowledge freeze. A shared commons is cheaper than each provider rebuilding a weaker private one.
@@ -268,7 +294,78 @@ Nothing here is provider-specific. A shared, open packet schema (problem, enviro
 
 **Maintainers.** Fewer duplicate, vague bug reports; more verified ones with a failing test attached.
 
-## 9. Open questions
+## 9. Potential economic and computational benefits
+
+### An illustrative scenario
+
+The numbers below are **assumptions chosen to explain the idea, not measurements**. No experiment has been run.
+
+Suppose a developer and an AI assistant need 10 hours to solve a hard, new bug. Suppose 100 developers hit the same bug independently.
+
+| | Calculation | Developer time |
+|---|---|---|
+| Today: everyone solves it alone | 100 × 10 h | 1,000 h |
+| With a shared pool: the first one solves it, the other 99 find the verified fix in about 5 minutes | 10 h + 99 × 5 min | ≈ 18.25 h |
+| Difference | | ≈ 981.75 h |
+
+### Where savings could come from
+
+1. Less time developers spend re-researching problems that were already solved.
+2. Fewer redundant model calls and less token usage on problems with a known, verified fix.
+3. Fewer repeated test runs and repeated code generation for the same fix.
+4. Possibly lower processing costs for AI providers.
+5. Possibly lower data-center energy use.
+6. Faster spread of verified knowledge, including to upstream projects (L).
+
+### Limits of this estimate
+
+- Developer time is not machine time. Ten hours of a developer working with an assistant does not mean ten hours of a GPU running at full load; most of that time is the human reading, thinking and testing.
+- The pool has its own costs: running the index, scanning, sandbox verification, human review and every lookup all consume compute and people's time. The scenario above ignores them.
+- It assumes the lookup finds a correct match. Bugs that are rare, or that look alike but have different causes, save less or nothing.
+- Real net savings can only be determined by controlled experiments, for example comparing time to fix, model calls and tokens per session with and without access to a verified pool, on the same set of known bugs. That experiment has not been done; it is an open item.
+
+For these reasons this README deliberately gives no percentages, energy figures or global cost estimates.
+
+## 10. What this repository is, and is not
+
+### Status
+
+SolvedOnce is:
+- a research proposal,
+- with reference code (validator, sandbox runner) and testable examples,
+- open to independent research, criticism and implementation.
+
+It is **not** a finished or running global service, and it has not been shown that the approach works at large scale. The reference code is not expected to be dropped into any company's systems unchanged. The goal is to put the approach on the table, so that its potential can be researched and, if it proves worthwhile, built properly by teams better equipped to do so.
+
+### Limits of the current verification
+
+The validator and the sandbox runner work, and they are tested in CI. That shows that the packet format can be checked mechanically and that a fail→pass claim can be reproduced for the example. It does **not** show that the system would work reliably across all operating systems, software versions or large user volumes.
+
+Verifying one fix properly at scale can mean testing it under many conditions:
+- different operating systems,
+- different language, library and dependency versions,
+- different hardware,
+- security checks,
+- regression tests against the project's existing suite.
+
+Testing every combination for every packet could be very expensive. A possible future direction is **risk-based, staged verification**: a cheap baseline check for every packet, and broader matrices only for packets with a large cluster, a wide affected version range, or a security impact. This is a design option to research, not an implemented feature.
+
+### Why a reference proposal and not a global service
+
+SolvedOnce is published on purpose as a reference implementation and an open research proposal. A global fix-sharing system is much more than working example code. It would need, among other things:
+- integration with many AI providers,
+- secure data collection at large scale,
+- sharing mechanisms based on explicit user consent,
+- verification across operating systems and software versions,
+- a secure, scalable test infrastructure,
+- detection of malicious submissions,
+- broad expert review,
+- incentive mechanisms for contributors,
+- ongoing maintenance and operational resources.
+
+It is not realistic for a single independent developer to run all of this at global scale. Large AI providers and research labs, with their resources and engineering teams, are in a far better position to study this approach at scale. This is a statement about who could do it, not a claim that any company supports, has adopted, or plans to build SolvedOnce.
+
+## 11. Open questions
 
 - Who owns a packet derived from a private session: the user, the provider, or the public? What license should the archive use?
 - Will providers adopt a shared format, or each build a private version? Is a neutral steward needed (a foundation, as with OSV or SPDX)?
@@ -280,7 +377,7 @@ Nothing here is provider-specific. A shared, open packet schema (problem, enviro
 - What share of packets should be held out for evaluation, how long should publication be delayed, and will all providers honor the canary?
 - Cross-provider packets: a `session_ref` is only meaningful to the provider that issued it. How should a shared archive verify packets from many providers (signed attestations from each provider)?
 
-## 10. Roadmap
+## 12. Roadmap
 
 | Step | What | Status |
 |---|---|---|
@@ -291,10 +388,11 @@ Nothing here is provider-specific. A shared, open packet schema (problem, enviro
 | 5 | Run it with a stronger isolation boundary (gVisor or Firecracker) and support more languages than Python | Next |
 | 6 | Client-side prototype: an agent skill that, after a hard-won fix, drafts a packet, runs the minimal reproduction and shows it to the user for approval | Planned |
 | 7 | Feedback from people who run training pipelines and from open source maintainers; schema v1.0 | Open: issues and PRs welcome |
+| 8 | Controlled experiment: time to fix, model calls and tokens per session, with and without a verified pool, on the same known bugs (see section 9) | Open: not yet run |
 
-## 11. Origin of the idea
+## 13. Origin of the idea
 
-This idea came out of a conversation about why Stack Overflow is fading. People no longer post their problems publicly, because an assistant answers instantly. But the assistant learned from those public posts in the first place. If nobody posts publicly anymore, future models lose their source of new knowledge — unless the private sessions that solve new problems can feed back into the commons in a safe, verified way.
+This idea came out of a conversation about why Stack Overflow is fading. People no longer post their problems publicly, because an assistant answers instantly. But the assistant learned from those public posts in the first place. If nobody posts publicly anymore, future models lose their source of new knowledge — unless the private sessions that solve new problems can feed back into the commons in a safe, verified way. Thinking it through made a more immediate point clear as well: even without any future knowledge crisis, a hundred developers unknowingly solving the same bug a hundred times is already an inefficiency worth fixing.
 
 There is a Turkish saying for the "everyone thinks their bug is the first" problem. Roughly: *everyone thinks their own trouble is the biggest one in the world.* Stage (A) and stage (F) exist because of that saying.
 
@@ -328,3 +426,5 @@ https://www.gulbaglar.com
 ## License
 
 MIT — see [LICENSE](LICENSE).
+
+The MIT license is a deliberate choice. The goal is not to sell this reference code as a product, but to make it as easy as possible to study, change, improve and adapt the idea in other systems. The code is not claimed to be flawless or production-ready, and better methods and more efficient implementations are certainly possible. Companies, research teams and open source developers are welcome to use it, as long as they follow the license terms, including keeping the copyright and license notice.

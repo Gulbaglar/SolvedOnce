@@ -11,7 +11,7 @@ Author: Kahraman Gülbağlar · License: MIT · Status: Concept / RFC
 - **Proposal:** when an agent solves a genuinely new bug in public software, it writes a structured *fix packet*: minimal reproduction as a failing test, the fix, and fail→pass evidence.
 - **Verification:** packets are scrubbed, deduplicated, rate-limited, scanned, re-run in a sandbox, checked against the provider's own session records, and reviewed by humans. Nothing rests on trusting the user's machine.
 - **Use:** verified packets go to a retrieval index (agents find the fix right away), to the upstream project and an open archive (public knowledge again), and into training, with a held-out share kept as fresh evals.
-- **Status:** design document, draft packet schema and a worked example are in this repo; validator and sandbox runner are next.
+- **Status:** design document, draft packet schema, a worked example and a tested reference validator are in this repo; a sandbox runner is next.
 
 ---
 
@@ -68,8 +68,19 @@ Forging a packet therefore gains nothing: every claim that matters is either mat
 
 ### What a packet looks like
 
+Quick start, checking the example with the reference validator:
+
+```bash
+pip install -r requirements.txt
+python validator/solvedonce_validate.py examples/example-packet.json
+# OK  examples/example-packet.json  (0 errors, 0 warnings)
+```
+
+What the validator checks, and what it deliberately does not, is documented in [`validator/README.md`](validator/README.md).
+
 - Schema: [`schema/fix-packet.schema.json`](schema/fix-packet.schema.json) (draft v0.3, JSON Schema 2020-12, strict: unknown fields are rejected, because packets are untrusted input)
-- Full example: [`examples/example-packet.json`](examples/example-packet.json) (fictional library, real format; it validates against the schema, its patch applies cleanly, and its test fails before the patch and passes after it)
+- Full example: [`examples/example-packet.json`](examples/example-packet.json) (fictional library, real format; it passes the reference validator in strict mode, its patch applies cleanly, and its test fails before the patch and passes after it)
+- Reference validator: [`validator/solvedonce_validate.py`](validator/solvedonce_validate.py), with tests in [`tests/`](tests/)
 
 Key fields: `scope`, `target` (ecosystem, package, affected version range, license), `problem` (symptom, root cause, normalized error signature or null for silent bugs), `novelty_check` (sources searched, and the failed attempts recorded in the session), `reproduction` (minimal test with pinned dependencies, rewritten by the model), `fix` (patch or workaround), `evidence` (fail before, pass after, produced by running the minimal reproduction itself), `provenance` (`authored_by: "model"`, `session_ref` to the provider's session record), `consent` (approval, public release, upstream report, attribution).
 
@@ -211,7 +222,7 @@ If the bug is in an open source project, the most useful place for the fix is th
 | Threat | Mitigation |
 |---|---|
 | Poisoned "fixes" with backdoors | Model-authored packets, static scan (E), sandbox fail→pass (G), human review (H) |
-| Prompt injection aimed at the pipeline or future models | Text-field scanning (E), structured schema, reviewer gate |
+| Prompt injection aimed at the pipeline or future models | Text-field scanning (E; first-pass patterns in the reference validator), structured schema, reviewer gate |
 | Spam / flooding | Client novelty check (A), quotas (D), dedup (F) |
 | Sybil accounts bypassing quotas | Trust-weighted quotas, acceptance-rate reputation (D) |
 | Leaking proprietary code or secrets | Minimal repro rewrite + secret/PII scanning (C), user approval |
@@ -223,7 +234,7 @@ If the bug is in an open source project, the most useful place for the fix is th
 | Held-out eval packets leaking into training via the public archive | Delayed publication plus canary marking (I) |
 | Inflated novelty claims ("the model didn't know this") | `failed_attempts` from the session trace, plus the provider re-running its own model on the repro without the fix (G) |
 | Training data leaking into the eval set | Fixed held-out split of accepted packets, never used for training (I) |
-| Malformed or oversized packets used as an attack vector | Strict schema with `additionalProperties: false` and length limits, validated before any other stage |
+| Malformed or oversized packets used as an attack vector | Strict schema with `additionalProperties: false` and length limits, plus a 256 KB size cap, checked by the reference validator before any other stage |
 
 ## 7. Cross-provider angle
 
@@ -261,8 +272,8 @@ Nothing here is provider-specific. A shared, open packet schema (problem, enviro
 |---|---|---|
 | 1 | Problem statement, pipeline, threat model (this document) | Done |
 | 2 | Packet schema and a worked example | Draft v0.3 in this repo |
-| 3 | Reference validator: a small CLI that checks a packet against the schema and runs basic sanity checks (patch applies, required fields, length limits) | Next |
-| 4 | Reference sandbox runner: builds an isolated environment from `reproduction.dependencies`, runs the test before and after the patch, outputs a signed result | Planned |
+| 3 | Reference validator: static checks for schema, evidence consistency, novelty evidence, pinned dependencies, version ranges, diff structure, secrets, PII, prompt injection and formats. Never executes packet code. 47 tests, CI on every push | Done: [`validator/`](validator/) |
+| 4 | Reference sandbox runner: builds an isolated environment from `reproduction.dependencies`, runs the test before and after the patch, outputs a signed result | Next |
 | 5 | Client-side prototype: an agent skill that, after a hard-won fix, drafts a packet, runs the minimal reproduction and shows it to the user for approval | Planned |
 | 6 | Feedback from people who run training pipelines and from open source maintainers; schema v1.0 | Open: issues and PRs welcome |
 

@@ -1,6 +1,6 @@
 # SolvedOnce
 
-**A proposal for verified, privacy-scrubbed, model-submitted fix packets that feed back into frontier model training.**
+**AI coding models are at risk of a knowledge freeze. The public sources they learned from are drying up, because people now ask AI instead of posting publicly. SolvedOnce is a proposed solution: a verified channel that feeds newly solved problems from agent sessions back into model training.**
 
 > Solved once by one user. Known by every model after the next training run.
 
@@ -8,7 +8,9 @@ Author: Kahraman Gülbağlar · License: MIT · Status: Concept / RFC
 
 ---
 
-## 1. The problem
+## 1. The problem: models are running out of new things to learn
+
+Coding models learned from public Q&A. That public Q&A is disappearing because of the models themselves. Left alone, this loop ends with models that know everything up to a certain year and almost nothing after it.
 
 Public developer knowledge is drying up at the source.
 

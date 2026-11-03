@@ -1,5 +1,7 @@
 # SolvedOnce
 
+[![validate](https://github.com/Gulbaglar/SolvedOnce/actions/workflows/validate.yml/badge.svg)](https://github.com/Gulbaglar/SolvedOnce/actions/workflows/validate.yml)
+
 **AI coding models are at risk of a knowledge freeze. The public sources they learned from are drying up, because people now ask AI instead of posting publicly. SolvedOnce is a proposed solution: a verified channel that feeds newly solved problems from agent sessions back into model training.**
 
 > Solved once by one user. Findable by every agent once verified, and learned by the next generation of models that take part.
@@ -306,6 +308,23 @@ There is a Turkish saying for the "everyone thinks their bug is the first" probl
 4. BIG-bench collaboration. *Beyond the Imitation Game: Quantifying and extrapolating the capabilities of language models* (canary string convention). https://github.com/google/BIG-bench
 5. *BIG-Bench Canary Contamination in GPT-4.* AI Alignment Forum, 2024. https://alignmentforum.org/posts/kSmHMoaLKGcGgyWzs/big-bench-canary-contamination-in-gpt-4
 
----
+Feedback, criticism and implementations are welcome: open an issue or a pull request.
 
-*Feedback, criticism and implementations welcome. MIT licensed — take it, build it, improve it.*
+## ☕ Support the Project
+
+This project is free and open source.
+
+If it saved you time, helped your project, or you simply want to support future development, you can buy me a coffee. ❤️
+
+[![Buy Me a Coffee](https://img.shields.io/badge/Buy%20Me%20a%20Coffee-Support-orange?style=for-the-badge&logo=buymeacoffee)](https://www.buymeacoffee.com/Gulbaglar)
+
+Thank you for supporting open-source development!
+
+## Author
+
+**Kahraman Gülbağlar**  
+https://www.gulbaglar.com
+
+## License
+
+MIT — see [LICENSE](LICENSE).

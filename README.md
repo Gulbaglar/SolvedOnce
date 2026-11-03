@@ -2,9 +2,16 @@
 
 **AI coding models are at risk of a knowledge freeze. The public sources they learned from are drying up, because people now ask AI instead of posting publicly. SolvedOnce is a proposed solution: a verified channel that feeds newly solved problems from agent sessions back into model training.**
 
-> Solved once by one user. Known by every model after the next training run.
+> Solved once by one user. Findable by every agent once verified, and learned by the next generation of models that take part.
 
 Author: Kahraman Gülbağlar · License: MIT · Status: Concept / RFC
+
+**TL;DR**
+- **Problem:** public developer Q&A, a key source of what coding models learned, is collapsing because developers now ask AI privately. New bugs get solved in private sessions and the knowledge is lost.
+- **Proposal:** when an agent solves a genuinely new bug in public software, it writes a structured *fix packet*: minimal reproduction as a failing test, the fix, and fail→pass evidence.
+- **Verification:** packets are scrubbed, deduplicated, rate-limited, scanned, re-run in a sandbox, checked against the provider's own session records, and reviewed by humans. Nothing rests on trusting the user's machine.
+- **Use:** verified packets go to a retrieval index (agents find the fix right away), to the upstream project and an open archive (public knowledge again), and into training, with a held-out share kept as fresh evals.
+- **Status:** design document, draft packet schema and a worked example are in this repo; validator and sandbox runner are next.
 
 ---
 
@@ -12,13 +19,19 @@ Author: Kahraman Gülbağlar · License: MIT · Status: Concept / RFC
 
 Coding models learned from public Q&A. That public Q&A is disappearing because of the models themselves. Left alone, this loop ends with models that know everything up to a certain year and almost nothing after it.
 
-Public developer knowledge is drying up at the source.
+Public developer knowledge is drying up at the source, and this is measured, not assumed:
+
+- A peer-reviewed study found that within six months of ChatGPT's release, posting activity on Stack Overflow fell by about 25% relative to comparable platforms where ChatGPT was less accessible, with larger drops for the most widely used languages such as Python and JavaScript [1].
+- Stack Overflow's own public data shows monthly question volume back at the level of its 2009 launch by May 2025 [2]. To be fair, the decline started earlier (around 2014, and faster from mid-2020), but it accelerated sharply after late 2022 [2].
+- Training on model-generated content instead of genuine human data degrades models over generations ("model collapse"), and the authors note that data from genuine human interactions becomes *more* valuable as AI-generated text spreads [3]. Verified fixes from real sessions are exactly that kind of data.
+
+In more detail:
 
 - For roughly 15 years, Stack Overflow, GitHub issues, and forums were the public record of *novel* bugs and their fixes. That record is a major part of what today's coding models learned from.
 - Developers now take their problems to an assistant instead. The bug gets solved in a private chat session and the knowledge stays there.
 - When a framework ships a new version with a new failure mode, there is no longer a public thread where hundreds of people converge on the fix. The next model generation has less to learn from on exactly the problems that matter most: the new ones.
 
-Meanwhile, every day, millions of agent sessions (Claude Code, Codex, Gemini CLI, Grok, etc.) work through genuinely novel bugs to a *verified* resolution — and that signal is mostly discarded or only weakly captured through generic "use my chats for training" opt-ins and thumbs-up/down.
+Meanwhile, every day, millions of agent sessions (Claude Code, Codex CLI, Gemini CLI, Cursor, and others) work through genuinely novel bugs to a *verified* resolution — and that signal is mostly discarded or only weakly captured through generic "use my chats for training" opt-ins and thumbs-up/down.
 
 **SolvedOnce** proposes a narrow, structured, verifiable channel for that signal.
 
@@ -43,12 +56,22 @@ The packet is scrubbed, deduplicated, rate-limited, scanned, executed in a sandb
 
 A bug in a company's own private code helps nobody else. A packet is eligible only if the problem lives in software that other people also use: public libraries, frameworks, language runtimes, toolchains, operating systems, drivers, public APIs. Private-code bugs never leave the session.
 
+### Trust boundary: the user's machine is not trusted
+
+Coding agents run partly on the user's machine, so anything the client sends could in principle be forged: someone could hand-write a packet and label it `authored_by: "model"`, or invent failed attempts. The design therefore never relies on the client's word:
+
+- **Authorship is checked server-side.** The model's own outputs in an agent session are produced on the provider's servers, so the provider already holds the session record. Each packet carries a `session_ref` to that record; the provider checks that the packet matches what its model actually produced and what was actually run in that session. Packets with no matching session are rejected. Ideally the provider generates the final packet itself from its own session record, and the client only adds the scrubbed reproduction and the user's approval.
+- **Evidence is re-run, not believed** (G): the fail→pass result is reproduced in the provider's sandbox.
+- **Novelty is re-measured, not believed** (G): the provider's current model gets the reproduction without the fix.
+
+Forging a packet therefore gains nothing: every claim that matters is either matched to the provider's own records or re-measured.
+
 ### What a packet looks like
 
-- Schema: [`schema/fix-packet.schema.json`](schema/fix-packet.schema.json) (draft v0.2, JSON Schema 2020-12, strict: unknown fields are rejected, because packets are untrusted input)
+- Schema: [`schema/fix-packet.schema.json`](schema/fix-packet.schema.json) (draft v0.3, JSON Schema 2020-12, strict: unknown fields are rejected, because packets are untrusted input)
 - Full example: [`examples/example-packet.json`](examples/example-packet.json) (fictional library, real format; it validates against the schema, its patch applies cleanly, and its test fails before the patch and passes after it)
 
-Key fields: `scope`, `target` (ecosystem, package, affected version range, license), `problem` (symptom, root cause, normalized error signature or null for silent bugs), `novelty_check` (sources searched, and the failed attempts recorded in the session), `reproduction` (minimal test with pinned dependencies, rewritten by the model), `fix` (patch or workaround), `evidence` (fail before, pass after, produced by running the minimal reproduction itself), `provenance` (`authored_by: "model"`), `consent` (approval, public release, upstream report, attribution).
+Key fields: `scope`, `target` (ecosystem, package, affected version range, license), `problem` (symptom, root cause, normalized error signature or null for silent bugs), `novelty_check` (sources searched, and the failed attempts recorded in the session), `reproduction` (minimal test with pinned dependencies, rewritten by the model), `fix` (patch or workaround), `evidence` (fail before, pass after, produced by running the minimal reproduction itself), `provenance` (`authored_by: "model"`, `session_ref` to the provider's session record), `consent` (approval, public release, upstream report, attribution).
 
 The key design choices:
 
@@ -86,8 +109,9 @@ The key design choices:
  (F) Semantic deduplication + clustering
         │  near-duplicate → increment cluster counter, attach as variant
         ▼
- (G) Sandboxed execution
-        │  test must FAIL on original, PASS with fix, no side effects
+ (G) Sandboxed verification
+        │  session_ref matches the provider's record; test FAILS on original, PASSES with fix;
+        │  provider's current model cannot fix it unaided (novelty re-check)
         ▼
  (H) Human / expert review (only for packets that passed E–G)
         │
@@ -140,6 +164,7 @@ Every packet is treated as untrusted supply-chain input.
 - Variants (same root cause, different surface) are attached to the cluster, which yields better generalization data than a single instance.
 
 ### (G) Sandboxed verification
+- Session check first: `provenance.session_ref` must point to a real session in the provider's records, and the packet must match what the model produced and ran there (see *Trust boundary*).
 - Run the test in an isolated environment (e.g. **gVisor**, **Firecracker** microVMs, or the containerized harnesses already used for SWE-bench-style evals).
 - Dependencies: the pinned versions in `reproduction.dependencies` are pre-fetched from a package mirror into the sandbox image, the same way SWE-bench harnesses build per-task environments. The test run itself has no network, no secrets, and resource limits.
 - Accept only if: test fails on the original, passes with the fix, and the fix does not break the package's existing test suite where available.
@@ -149,7 +174,13 @@ Every packet is treated as untrusted supply-chain input.
 Only packets that survived E–G reach a reviewer, so expert time is spent on a small, high-quality, already-verified set. Large clusters are reviewed first.
 
 ### (I) Training admission
-Accepted packets are split: most enter the corpus for the next training cycle; a held-out share (for example, a random slice of each month's packets) is never trained on and forms a rolling eval set of real, recent, verified bugs. Held-out packets can still be served by retrieval (J) and published (K); they are only excluded from training. No claim is made about online weight updates: models are not patched per example (catastrophic forgetting, cost, safety review). The point is a **clean, verified, steadily growing source** for the regular retraining cadence.
+Accepted packets are split: most enter the corpus for the next training cycle; a held-out share (for example, a random slice of each month's packets) is never trained on and forms a rolling eval set of real, recent, verified bugs. The idea of a continuously refreshed eval set is already used by benchmarks that add new questions over time precisely to stay ahead of training data.
+
+Held-out packets must not leak into anyone's training data through the public archive (K). Two measures:
+- **Delayed publication:** held-out packets are published only after the eval window closes (for example, after the next model generation has been measured on them). Until then they can be used privately for retrieval (J) by the provider that holds them.
+- **Canary marking:** when published, they carry a canary string, the same mechanism BIG-bench introduced so that dataset builders can filter benchmark data out of training corpora [4]. Canaries are known to be imperfect (models have been shown to reproduce canary strings, which means marked data still got into training) [5], so delayed publication is the primary protection and the canary a tripwire.
+
+No claim is made about online weight updates: models are not patched per example (catastrophic forgetting, cost, safety review). The point is a **clean, verified, steadily growing source** for the regular retraining cadence.
 
 ### (J) Retrieval index: don't wait for the next model
 Retraining takes months. Verified packets therefore also go into a searchable index, keyed by `target`, version range and `error_signature` (or, for silent wrong-output bugs with no error, by symptom similarity). When an agent hits an error, it queries the index before guessing; a match returns the verified fix and its test. The index is also what stage (A) checks against, so the novelty check gets better as the index grows.
@@ -188,6 +219,8 @@ If the bug is in an open source project, the most useful place for the fix is th
 | Flooding open source maintainers with automated reports | Upstream reports only after G and H, rate-limited, duplicate-checked against open issues (L) |
 | Stale fixes served after upstream fixed the bug | Version ranges in `target`; packets retired from (J) once `fixed_in_version` ships |
 | Private-code bugs leaking out as "public" packets | `scope` must name a public component; reviewer rejects anything else |
+| Forged packets written by hand on the user's machine and labeled as model-authored | `session_ref` checked against the provider's own session records; evidence and novelty re-measured in (G) |
+| Held-out eval packets leaking into training via the public archive | Delayed publication plus canary marking (I) |
 | Inflated novelty claims ("the model didn't know this") | `failed_attempts` from the session trace, plus the provider re-running its own model on the repro without the fix (G) |
 | Training data leaking into the eval set | Fixed held-out split of accepted packets, never used for training (I) |
 | Malformed or oversized packets used as an attack vector | Strict schema with `additionalProperties: false` and length limits, validated before any other stage |
@@ -219,14 +252,15 @@ Nothing here is provider-specific. A shared, open packet schema (problem, enviro
 - How should conflicting packets for the same bug be resolved, e.g. two different workarounds that both pass?
 - How to keep upstream reporting from adding to maintainer burden in practice, not just in principle?
 - Licensing in practice: who checks that `target.license` is correct, and how are patches to projects with unclear or missing licenses handled?
-- What share of packets should be held out for evaluation, and how is it kept out of every provider's training data if the archive is public?
+- What share of packets should be held out for evaluation, how long should publication be delayed, and will all providers honor the canary?
+- Cross-provider packets: a `session_ref` is only meaningful to the provider that issued it. How should a shared archive verify packets from many providers (signed attestations from each provider)?
 
 ## 10. Roadmap
 
 | Step | What | Status |
 |---|---|---|
 | 1 | Problem statement, pipeline, threat model (this document) | Done |
-| 2 | Packet schema and a worked example | Draft v0.2 in this repo |
+| 2 | Packet schema and a worked example | Draft v0.3 in this repo |
 | 3 | Reference validator: a small CLI that checks a packet against the schema and runs basic sanity checks (patch applies, required fields, length limits) | Next |
 | 4 | Reference sandbox runner: builds an isolated environment from `reproduction.dependencies`, runs the test before and after the patch, outputs a signed result | Planned |
 | 5 | Client-side prototype: an agent skill that, after a hard-won fix, drafts a packet, runs the minimal reproduction and shows it to the user for approval | Planned |
@@ -237,6 +271,16 @@ Nothing here is provider-specific. A shared, open packet schema (problem, enviro
 This idea came out of a conversation about why Stack Overflow is fading. People no longer post their problems publicly, because an assistant answers instantly. But the assistant learned from those public posts in the first place. If nobody posts publicly anymore, future models lose their source of new knowledge — unless the private sessions that solve new problems can feed back into the commons in a safe, verified way.
 
 There is a Turkish saying for the "everyone thinks their bug is the first" problem. Roughly: *everyone thinks their own trouble is the biggest one in the world.* Stage (A) and stage (F) exist because of that saying.
+
+---
+
+## References
+
+1. R. M. del Rio-Chanona, N. Laurentsyeva, J. Wachs. *Large language models reduce public knowledge sharing on online Q&A platforms.* PNAS Nexus 3(9), 2024. https://doi.org/10.1093/pnasnexus/pgae400
+2. G. Orosz. *Stack Overflow is almost dead.* The Pragmatic Engineer, 2025 (data from the Stack Exchange Data Explorer). https://blog.pragmaticengineer.com/stack-overflow-is-almost-dead
+3. I. Shumailov, Z. Shumaylov, Y. Zhao, N. Papernot, R. Anderson, Y. Gal. *AI models collapse when trained on recursively generated data.* Nature 631, 755–759, 2024. https://doi.org/10.1038/s41586-024-07566-y
+4. BIG-bench collaboration. *Beyond the Imitation Game: Quantifying and extrapolating the capabilities of language models* (canary string convention). https://github.com/google/BIG-bench
+5. *BIG-Bench Canary Contamination in GPT-4.* AI Alignment Forum, 2024. https://alignmentforum.org/posts/kSmHMoaLKGcGgyWzs/big-bench-canary-contamination-in-gpt-4
 
 ---
 

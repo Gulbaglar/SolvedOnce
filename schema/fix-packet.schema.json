@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/Gulbaglar/SolvedOnce/schema/fix-packet.schema.json",
   "title": "SolvedOnce Fix Packet",
-  "description": "A model-authored, privacy-scrubbed, executable record of a newly solved problem in public software. Draft v0.2. Packets are untrusted input: the schema is strict and rejects unknown fields.",
+  "description": "A model-authored, privacy-scrubbed, executable record of a newly solved problem in public software. Draft v0.3. Packets are untrusted input: the schema is strict and rejects unknown fields.",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -21,7 +21,7 @@
     "consent"
   ],
   "properties": {
-    "schema_version": { "const": "0.2" },
+    "schema_version": { "const": "0.3" },
     "packet_id": {
       "type": "string",
       "description": "Random identifier generated client-side. Must not encode user or account identity.",
@@ -168,9 +168,14 @@
     "provenance": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["authored_by", "agent", "model"],
+      "required": ["authored_by", "session_ref", "agent", "model"],
       "properties": {
         "authored_by": { "const": "model", "description": "Humans do not hand-write packet content. This raises the bar for injection but does not remove it; stages E, G and H still apply." },
+        "session_ref": {
+          "type": "string",
+          "minLength": 16,
+          "description": "Opaque reference to the agent session in the provider's own records. The provider checks the packet against that record (stage G); a packet with no matching session is rejected. Must not encode user identity."
+        },
         "agent": { "type": "string", "examples": ["Claude Code", "Codex CLI", "Gemini CLI"] },
         "model": { "type": "string" },
         "scrubbing_tools": { "type": "array", "items": { "type": "string" } }

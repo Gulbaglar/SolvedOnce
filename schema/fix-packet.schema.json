@@ -2,8 +2,9 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/Gulbaglar/SolvedOnce/schema/fix-packet.schema.json",
   "title": "SolvedOnce Fix Packet",
-  "description": "A model-authored, privacy-scrubbed, executable record of a newly solved problem in public software. Draft v0.1.",
+  "description": "A model-authored, privacy-scrubbed, executable record of a newly solved problem in public software. Draft v0.2. Packets are untrusted input: the schema is strict and rejects unknown fields.",
   "type": "object",
+  "additionalProperties": false,
   "required": [
     "schema_version",
     "packet_id",
@@ -20,13 +21,18 @@
     "consent"
   ],
   "properties": {
-    "schema_version": { "const": "0.1" },
+    "schema_version": { "const": "0.2" },
     "packet_id": {
       "type": "string",
       "description": "Random identifier generated client-side. Must not encode user or account identity.",
       "pattern": "^so_[a-z0-9]{16,}$"
     },
     "created_at": { "type": "string", "format": "date-time" },
+    "note": {
+      "type": "string",
+      "maxLength": 500,
+      "description": "Optional free text. Not used for verification. Scanned like every other text field (stage E)."
+    },
 
     "scope": {
       "type": "string",
@@ -36,19 +42,26 @@
 
     "target": {
       "type": "object",
+      "additionalProperties": false,
       "description": "The public component the problem lives in.",
-      "required": ["ecosystem", "name", "affected_versions"],
+      "required": ["ecosystem", "name", "affected_versions", "license"],
       "properties": {
         "ecosystem": { "type": "string", "examples": ["PyPI", "npm", "crates.io", "Maven", "Debian", "Windows"] },
         "name": { "type": "string" },
         "affected_versions": { "type": "string", "description": "Version range, e.g. \">=2.4.0,<2.4.3\"" },
         "fixed_in_version": { "type": ["string", "null"] },
-        "upstream_repository": { "type": ["string", "null"], "format": "uri" }
+        "upstream_repository": { "type": ["string", "null"], "format": "uri" },
+        "license": {
+          "type": "string",
+          "description": "SPDX identifier of the target's license. A patch derived from the target's code inherits it; it decides whether the patch may go into the public archive under its default license.",
+          "examples": ["MIT", "Apache-2.0", "GPL-3.0-only", "proprietary"]
+        }
       }
     },
 
     "environment": {
       "type": "object",
+      "additionalProperties": false,
       "required": ["os", "runtime"],
       "properties": {
         "os": { "type": "string" },
@@ -62,28 +75,48 @@
 
     "problem": {
       "type": "object",
+      "additionalProperties": false,
       "required": ["title", "symptom", "root_cause"],
       "properties": {
         "title": { "type": "string", "maxLength": 140 },
         "symptom": { "type": "string", "description": "What the user observed. Error text must be scrubbed." },
         "root_cause": { "type": "string", "description": "Why it happens, as established during the session." },
-        "error_signature": { "type": ["string", "null"], "description": "Normalized error message, used for retrieval and deduplication." }
+        "error_signature": {
+          "type": ["string", "null"],
+          "description": "Normalized error raised by the target itself, used for retrieval and deduplication. Null for silent wrong-output bugs; retrieval then falls back to target, version range and symptom similarity."
+        }
       }
     },
 
     "novelty_check": {
       "type": "object",
-      "description": "What the model checked before deciding this is not already known (stage A).",
-      "required": ["model_solved_unaided", "sources_checked", "known_match_found"],
+      "additionalProperties": false,
+      "description": "Evidence that the problem was new to the model and not already known (stage A). Self-reported here; re-checked by the provider in stage G.",
+      "required": ["model_solved_unaided", "failed_attempts", "sources_checked", "known_match_found"],
       "properties": {
         "model_solved_unaided": {
-          "type": "boolean",
-          "description": "Must be false. True means the model already knew the answer and no packet should be generated."
+          "const": false,
+          "description": "If the model solved it from existing knowledge, no packet is generated."
+        },
+        "failed_attempts": {
+          "type": "array",
+          "minItems": 1,
+          "description": "Recorded from the session trace, not from the model's introspection: approaches the agent actually tried that did not fix the failing test.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["approach", "result"],
+            "properties": {
+              "approach": { "type": "string" },
+              "result": { "type": "string" }
+            }
+          }
         },
         "sources_checked": {
           "type": "array",
           "items": { "type": "string", "enum": ["web_search", "upstream_issue_tracker", "release_notes", "advisory_database", "solvedonce_index"] },
-          "minItems": 2
+          "minItems": 2,
+          "uniqueItems": true
         },
         "known_match_found": { "const": false },
         "closest_known_references": { "type": "array", "items": { "type": "string", "format": "uri" } }
@@ -92,11 +125,17 @@
 
     "reproduction": {
       "type": "object",
-      "description": "Minimal, self-contained, rewritten by the model. Never a copy of the user's code.",
-      "required": ["language", "setup", "test_code", "run_command"],
+      "additionalProperties": false,
+      "description": "Minimal, self-contained, rewritten by the model. Never a copy of the user's code. Evidence must come from running exactly this reproduction.",
+      "required": ["language", "dependencies", "test_code", "run_command"],
       "properties": {
         "language": { "type": "string" },
-        "setup": { "type": "string", "description": "Exact commands to create the environment, e.g. pinned installs." },
+        "dependencies": {
+          "type": "object",
+          "description": "Exact pinned versions. The sandbox pre-fetches these from a mirror; the test itself runs without network.",
+          "minProperties": 1,
+          "additionalProperties": { "type": "string" }
+        },
         "test_code": { "type": "string" },
         "run_command": { "type": "string" }
       }
@@ -104,19 +143,22 @@
 
     "fix": {
       "type": "object",
+      "additionalProperties": false,
       "required": ["kind", "description"],
       "properties": {
         "kind": { "type": "string", "enum": ["upstream_patch", "user_side_workaround", "configuration_change", "version_pin"] },
         "description": { "type": "string" },
-        "patch": { "type": ["string", "null"], "description": "Unified diff, if the fix is a code change." }
+        "patch": { "type": ["string", "null"], "description": "Unified diff against the target, if the fix is a code change." }
       }
     },
 
     "evidence": {
       "type": "object",
-      "description": "Claimed by the client, re-verified by the provider sandbox (stage G).",
-      "required": ["before_fix", "after_fix"],
+      "additionalProperties": false,
+      "description": "Produced client-side by running the minimal reproduction above (not the user's original code), then re-verified independently in the provider sandbox (stage G).",
+      "required": ["ran_on", "before_fix", "after_fix"],
       "properties": {
+        "ran_on": { "const": "minimal_reproduction" },
         "before_fix": { "$ref": "#/$defs/run_result" },
         "after_fix": { "$ref": "#/$defs/run_result" },
         "existing_test_suite_passed": { "type": ["boolean", "null"] }
@@ -125,9 +167,10 @@
 
     "provenance": {
       "type": "object",
+      "additionalProperties": false,
       "required": ["authored_by", "agent", "model"],
       "properties": {
-        "authored_by": { "const": "model", "description": "Humans do not author packet content." },
+        "authored_by": { "const": "model", "description": "Humans do not hand-write packet content. This raises the bar for injection but does not remove it; stages E, G and H still apply." },
         "agent": { "type": "string", "examples": ["Claude Code", "Codex CLI", "Gemini CLI"] },
         "model": { "type": "string" },
         "scrubbing_tools": { "type": "array", "items": { "type": "string" } }
@@ -136,6 +179,7 @@
 
     "consent": {
       "type": "object",
+      "additionalProperties": false,
       "required": ["user_approved_final_packet", "allow_public_release", "allow_upstream_report"],
       "properties": {
         "user_approved_final_packet": { "const": true },
@@ -149,6 +193,7 @@
   "$defs": {
     "run_result": {
       "type": "object",
+      "additionalProperties": false,
       "required": ["exit_code", "outcome"],
       "properties": {
         "exit_code": { "type": "integer" },

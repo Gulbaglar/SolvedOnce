@@ -1,0 +1,160 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/Gulbaglar/SolvedOnce/schema/fix-packet.schema.json",
+  "title": "SolvedOnce Fix Packet",
+  "description": "A model-authored, privacy-scrubbed, executable record of a newly solved problem in public software. Draft v0.1.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "packet_id",
+    "created_at",
+    "scope",
+    "target",
+    "environment",
+    "problem",
+    "novelty_check",
+    "reproduction",
+    "fix",
+    "evidence",
+    "provenance",
+    "consent"
+  ],
+  "properties": {
+    "schema_version": { "const": "0.1" },
+    "packet_id": {
+      "type": "string",
+      "description": "Random identifier generated client-side. Must not encode user or account identity.",
+      "pattern": "^so_[a-z0-9]{16,}$"
+    },
+    "created_at": { "type": "string", "format": "date-time" },
+
+    "scope": {
+      "type": "string",
+      "description": "Only problems in software other people also use are eligible. Bugs in private code are out of scope.",
+      "enum": ["public_library", "framework", "language_runtime", "toolchain", "operating_system", "public_api", "hardware_driver"]
+    },
+
+    "target": {
+      "type": "object",
+      "description": "The public component the problem lives in.",
+      "required": ["ecosystem", "name", "affected_versions"],
+      "properties": {
+        "ecosystem": { "type": "string", "examples": ["PyPI", "npm", "crates.io", "Maven", "Debian", "Windows"] },
+        "name": { "type": "string" },
+        "affected_versions": { "type": "string", "description": "Version range, e.g. \">=2.4.0,<2.4.3\"" },
+        "fixed_in_version": { "type": ["string", "null"] },
+        "upstream_repository": { "type": ["string", "null"], "format": "uri" }
+      }
+    },
+
+    "environment": {
+      "type": "object",
+      "required": ["os", "runtime"],
+      "properties": {
+        "os": { "type": "string" },
+        "runtime": { "type": "string" },
+        "relevant_dependencies": {
+          "type": "object",
+          "additionalProperties": { "type": "string" }
+        }
+      }
+    },
+
+    "problem": {
+      "type": "object",
+      "required": ["title", "symptom", "root_cause"],
+      "properties": {
+        "title": { "type": "string", "maxLength": 140 },
+        "symptom": { "type": "string", "description": "What the user observed. Error text must be scrubbed." },
+        "root_cause": { "type": "string", "description": "Why it happens, as established during the session." },
+        "error_signature": { "type": ["string", "null"], "description": "Normalized error message, used for retrieval and deduplication." }
+      }
+    },
+
+    "novelty_check": {
+      "type": "object",
+      "description": "What the model checked before deciding this is not already known (stage A).",
+      "required": ["model_solved_unaided", "sources_checked", "known_match_found"],
+      "properties": {
+        "model_solved_unaided": {
+          "type": "boolean",
+          "description": "Must be false. True means the model already knew the answer and no packet should be generated."
+        },
+        "sources_checked": {
+          "type": "array",
+          "items": { "type": "string", "enum": ["web_search", "upstream_issue_tracker", "release_notes", "advisory_database", "solvedonce_index"] },
+          "minItems": 2
+        },
+        "known_match_found": { "const": false },
+        "closest_known_references": { "type": "array", "items": { "type": "string", "format": "uri" } }
+      }
+    },
+
+    "reproduction": {
+      "type": "object",
+      "description": "Minimal, self-contained, rewritten by the model. Never a copy of the user's code.",
+      "required": ["language", "setup", "test_code", "run_command"],
+      "properties": {
+        "language": { "type": "string" },
+        "setup": { "type": "string", "description": "Exact commands to create the environment, e.g. pinned installs." },
+        "test_code": { "type": "string" },
+        "run_command": { "type": "string" }
+      }
+    },
+
+    "fix": {
+      "type": "object",
+      "required": ["kind", "description"],
+      "properties": {
+        "kind": { "type": "string", "enum": ["upstream_patch", "user_side_workaround", "configuration_change", "version_pin"] },
+        "description": { "type": "string" },
+        "patch": { "type": ["string", "null"], "description": "Unified diff, if the fix is a code change." }
+      }
+    },
+
+    "evidence": {
+      "type": "object",
+      "description": "Claimed by the client, re-verified by the provider sandbox (stage G).",
+      "required": ["before_fix", "after_fix"],
+      "properties": {
+        "before_fix": { "$ref": "#/$defs/run_result" },
+        "after_fix": { "$ref": "#/$defs/run_result" },
+        "existing_test_suite_passed": { "type": ["boolean", "null"] }
+      }
+    },
+
+    "provenance": {
+      "type": "object",
+      "required": ["authored_by", "agent", "model"],
+      "properties": {
+        "authored_by": { "const": "model", "description": "Humans do not author packet content." },
+        "agent": { "type": "string", "examples": ["Claude Code", "Codex CLI", "Gemini CLI"] },
+        "model": { "type": "string" },
+        "scrubbing_tools": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+
+    "consent": {
+      "type": "object",
+      "required": ["user_approved_final_packet", "allow_public_release", "allow_upstream_report"],
+      "properties": {
+        "user_approved_final_packet": { "const": true },
+        "allow_public_release": { "type": "boolean", "description": "May the verified packet be published openly (stage K)?" },
+        "allow_upstream_report": { "type": "boolean", "description": "May an issue/PR be opened upstream (stage L)?" },
+        "attribution": { "type": ["string", "null"], "description": "Public name or handle to credit, or null to stay anonymous." }
+      }
+    }
+  },
+
+  "$defs": {
+    "run_result": {
+      "type": "object",
+      "required": ["exit_code", "outcome"],
+      "properties": {
+        "exit_code": { "type": "integer" },
+        "outcome": { "type": "string", "enum": ["fail", "pass"] },
+        "output_excerpt": { "type": "string", "maxLength": 2000 }
+      }
+    }
+  }
+}

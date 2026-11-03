@@ -11,7 +11,8 @@ Author: Kahraman Gülbağlar · License: MIT · Status: Concept / RFC
 - **Proposal:** when an agent solves a genuinely new bug in public software, it writes a structured *fix packet*: minimal reproduction as a failing test, the fix, and fail→pass evidence.
 - **Verification:** packets are scrubbed, deduplicated, rate-limited, scanned, re-run in a sandbox, checked against the provider's own session records, and reviewed by humans. Nothing rests on trusting the user's machine.
 - **Use:** verified packets go to a retrieval index (agents find the fix right away), to the upstream project and an open archive (public knowledge again), and into training, with a held-out share kept as fresh evals.
-- **Status:** design document, draft packet schema, a worked example and a tested reference validator are in this repo; a sandbox runner is next.
+- **Vendor-neutral:** not written for any one company. The schema and tools are open (MIT); any AI provider, large or small, can adopt them, and packets are meant to be shareable between providers.
+- **Status:** design document, draft packet schema, a runnable worked example, a reference validator and a reference sandbox runner with signed results are in this repo, all tested in CI.
 
 ---
 
@@ -78,9 +79,20 @@ python validator/solvedonce_validate.py examples/example-packet.json
 
 What the validator checks, and what it deliberately does not, is documented in [`validator/README.md`](validator/README.md).
 
+Then actually run it, in an isolated container: does the bug happen, and does the patch fix it?
+
+```bash
+python sandbox/solvedonce_run.py run examples/example-packet.json \
+    --package-dir tinycsv=examples/fixtures/tinycsv --out result.json
+# verdict: verified
+```
+
+The example's library is fictional, so the repository ships a small copy of it, bug included, in [`examples/fixtures/tinycsv`](examples/fixtures/tinycsv). Details: [`sandbox/README.md`](sandbox/README.md).
+
 - Schema: [`schema/fix-packet.schema.json`](schema/fix-packet.schema.json) (draft v0.3, JSON Schema 2020-12, strict: unknown fields are rejected, because packets are untrusted input)
 - Full example: [`examples/example-packet.json`](examples/example-packet.json) (fictional library, real format; it passes the reference validator in strict mode, its patch applies cleanly, and its test fails before the patch and passes after it)
-- Reference validator: [`validator/solvedonce_validate.py`](validator/solvedonce_validate.py), with tests in [`tests/`](tests/)
+- Reference validator: [`validator/solvedonce_validate.py`](validator/solvedonce_validate.py)
+- Reference sandbox runner: [`sandbox/solvedonce_run.py`](sandbox/solvedonce_run.py), with tests for both in [`tests/`](tests/)
 
 Key fields: `scope`, `target` (ecosystem, package, affected version range, license), `problem` (symptom, root cause, normalized error signature or null for silent bugs), `novelty_check` (sources searched, and the failed attempts recorded in the session), `reproduction` (minimal test with pinned dependencies, rewritten by the model), `fix` (patch or workaround), `evidence` (fail before, pass after, produced by running the minimal reproduction itself), `provenance` (`authored_by: "model"`, `session_ref` to the provider's session record), `consent` (approval, public release, upstream report, attribution).
 
@@ -272,10 +284,11 @@ Nothing here is provider-specific. A shared, open packet schema (problem, enviro
 |---|---|---|
 | 1 | Problem statement, pipeline, threat model (this document) | Done |
 | 2 | Packet schema and a worked example | Draft v0.3 in this repo |
-| 3 | Reference validator: static checks for schema, evidence consistency, novelty evidence, pinned dependencies, version ranges, diff structure, secrets, PII, prompt injection and formats. Never executes packet code. 47 tests, CI on every push | Done: [`validator/`](validator/) |
-| 4 | Reference sandbox runner: builds an isolated environment from `reproduction.dependencies`, runs the test before and after the patch, outputs a signed result | Next |
-| 5 | Client-side prototype: an agent skill that, after a hard-won fix, drafts a packet, runs the minimal reproduction and shows it to the user for approval | Planned |
-| 6 | Feedback from people who run training pipelines and from open source maintainers; schema v1.0 | Open: issues and PRs welcome |
+| 3 | Reference validator: static checks for schema, evidence consistency, novelty evidence, pinned dependencies, version ranges, diff structure, secrets, PII, prompt injection and formats. Never executes packet code. Tested in CI on every push | Done: [`validator/`](validator/) |
+| 4 | Reference sandbox runner: rebuilds the environment from pinned dependencies, runs the test before and after the patch in an isolated Docker container with no network, compares results with the packet's claims, and signs the result (Ed25519). Catches wrong fixes and lying packets | Done: [`sandbox/`](sandbox/) |
+| 5 | Run it with a stronger isolation boundary (gVisor or Firecracker) and support more languages than Python | Next |
+| 6 | Client-side prototype: an agent skill that, after a hard-won fix, drafts a packet, runs the minimal reproduction and shows it to the user for approval | Planned |
+| 7 | Feedback from people who run training pipelines and from open source maintainers; schema v1.0 | Open: issues and PRs welcome |
 
 ## 11. Origin of the idea
 

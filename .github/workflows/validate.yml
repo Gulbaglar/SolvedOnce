@@ -20,7 +20,29 @@ jobs:
           python-version: ${{ matrix.python-version }}
       - name: Install dependencies
         run: pip install -r requirements.txt
-      - name: Run tests
+      - name: Run tests (validator, patch applier, runner with local backend)
         run: python -m pytest -q tests
       - name: Validate example packets (strict)
         run: python validator/solvedonce_validate.py --strict examples/*.json
+
+  sandbox-docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Docker end-to-end tests (isolated runs, network blocked)
+        env:
+          SOLVEDONCE_DOCKER_E2E: "1"
+        run: python -m pytest -q tests/test_runner.py -k "e2e and docker"
+      - name: Run the example in the sandbox, sign the result, verify the signature
+        run: |
+          python sandbox/solvedonce_run.py keygen --out-dir /tmp/keys
+          python sandbox/solvedonce_run.py run examples/example-packet.json \
+            --package-dir tinycsv=examples/fixtures/tinycsv \
+            --sign-key /tmp/keys/runner_ed25519.pem --out result.json
+          python sandbox/solvedonce_run.py verify result.json --public-key /tmp/keys/runner_ed25519.pub.pem
+          cat result.json

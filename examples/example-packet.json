@@ -51,7 +51,7 @@
   "fix": {
     "kind": "upstream_patch",
     "description": "Strip only the line terminator, never the delimiter. Workaround for users until a release ships: pin tinycsv==3.0.4, or normalize CRLF to LF before parsing.",
-    "patch": "--- a/tinycsv/_fast.py\n+++ b/tinycsv/_fast.py\n@@ -88,2 +88,2 @@ def _split_line(line, delimiter):\n-    line = line.rstrip('\\r\\n' + delimiter)\n+    line = line.rstrip('\\r\\n')\n     return line.split(delimiter)\n"
+    "patch": "--- a/tinycsv/_fast.py\n+++ b/tinycsv/_fast.py\n@@ -10,2 +10,2 @@ def _split_line(line, delimiter):\n-    line = line.rstrip('\\r\\n' + delimiter)\n+    line = line.rstrip('\\r\\n')\n     return line.split(delimiter)\n"
   },
 
   "evidence": {

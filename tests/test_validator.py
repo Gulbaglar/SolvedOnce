@@ -155,7 +155,7 @@ def test_fixed_version_inside_affected_range():
 
 def test_hunk_header_mismatch():
     def m(p):
-        p["fix"]["patch"] = p["fix"]["patch"].replace("@@ -88,2 +88,2 @@", "@@ -88,7 +88,7 @@")
+        p["fix"]["patch"] = p["fix"]["patch"].replace("@@ -10,2 +10,2 @@", "@@ -88,7 +88,7 @@")
     assert "SO502" in codes(run(mutate(m)))
 
 

@@ -31,7 +31,24 @@ When an agent and a user resolve a problem the agent could not solve from existi
 3. The fix
 4. Evidence that the test **fails before** and **passes after** the fix
 
-The packet is scrubbed, deduplicated, rate-limited, scanned, executed in a sandbox, and only then reviewed by humans and admitted into a training corpus.
+The packet is scrubbed, deduplicated, rate-limited, scanned, executed in a sandbox, and only then reviewed by humans. A verified packet is then used in three ways, on three time scales:
+
+| When | Where it goes | Effect |
+|---|---|---|
+| **Same day** | A searchable index of verified packets (retrieval) | Every agent can find the fix immediately, before any retraining |
+| **Days** | The upstream project's issue tracker, and an open public archive | The library gets fixed, and the knowledge stays public for humans and every model, not one provider |
+| **Next model release** | Training and eval corpus | The knowledge becomes part of the model itself |
+
+### Scope: only problems other people will also hit
+
+A bug in a company's own private code helps nobody else. A packet is eligible only if the problem lives in software that other people also use: public libraries, frameworks, language runtimes, toolchains, operating systems, drivers, public APIs. Private-code bugs never leave the session.
+
+### What a packet looks like
+
+- Schema: [`schema/fix-packet.schema.json`](schema/fix-packet.schema.json) (draft v0.1, JSON Schema 2020-12)
+- Full example: [`examples/example-packet.json`](examples/example-packet.json) (fictional library, real format; its test genuinely fails before the patch and passes after it)
+
+Key fields: `scope`, `target` (ecosystem, package, affected version range), `problem` (symptom, root cause, normalized error signature), `novelty_check` (what was searched, and proof the model could *not* solve it unaided), `reproduction` (minimal test, rewritten by the model), `fix` (patch or workaround), `evidence` (before: fail, after: pass), `provenance` (`authored_by: "model"`), `consent` (approval, public release, upstream report, attribution).
 
 The key design choices:
 
@@ -73,8 +90,11 @@ The key design choices:
         │  test must FAIL on original, PASS with fix, no side effects
         ▼
  (H) Human / expert review (only for packets that passed E–G)
-        ▼
- (I) Admission into training / eval corpus for the next model release
+        │
+        ├──► (J) Retrieval index ............ same day: agents look it up
+        ├──► (K) Public archive ............. if the user allowed public release
+        ├──► (L) Upstream issue / PR ........ if the user allowed it, and upstream is public
+        └──► (I) Training / eval corpus ..... next model release
 ```
 
 ## 4. Stage details and real-world precedents
@@ -128,6 +148,21 @@ Only packets that survived E–G reach a reviewer, so expert time is spent on a 
 ### (I) Training admission
 Accepted packets enter the corpus for the next training cycle and/or the eval suite. No claim is made about online weight updates: models are not patched per example (catastrophic forgetting, cost, safety review). The point is a **clean, verified, steadily growing source** for the regular retraining cadence.
 
+### (J) Retrieval index: don't wait for the next model
+Retraining takes months. Verified packets therefore also go into a searchable index, keyed by `error_signature`, `target` and version range. When an agent hits an error, it queries the index before guessing; a match returns the verified fix and its test. The index is also what stage (A) checks against, so the novelty check gets better as the index grows.
+
+- Precedent: retrieval-augmented generation (RAG), already used by assistants for docs and web search; and advisory feeds like **OSV.dev** that tools query by package and version.
+- Version ranges matter: a fix is only served to agents working with an affected version, and retired once `fixed_in_version` is released.
+
+### (K) Public archive
+With the user's consent, verified packets are published in an open archive under an open license. This is the actual replacement for public Q&A: humans can read it, search engines index it, and every model provider, large or small, can learn from it.
+
+### (L) Upstream report
+If the bug is in an open source project, the most useful place for the fix is the project itself. With the user's consent, the packet is turned into an issue (with the failing test) or a pull request (with the patch) on the upstream tracker, after a check that no equivalent issue is already open.
+
+- Upstream reports must be rate-limited and human-reviewed. Maintainers are already overloaded by low-quality automated reports; a SolvedOnce report is only acceptable because it arrives verified, minimal, and with a failing test attached.
+- Once upstream ships the fix, the packet is marked resolved in (J) and stops being served for new versions.
+
 ## 5. Why the model should write the packet
 
 - **Integrity:** the human never authors "the fix" as free text. The model reports what actually happened in the session and what was actually executed.
@@ -145,20 +180,38 @@ Accepted packets enter the corpus for the next training cycle and/or the eval su
 | Sybil accounts bypassing quotas | Trust-weighted quotas, acceptance-rate reputation (D) |
 | Leaking proprietary code or secrets | Minimal repro rewrite + secret/PII scanning (C), user approval |
 | Coordinated campaigns to push a wrong "consensus" | Cluster size raises priority but never bypasses G and H |
+| Flooding open source maintainers with automated reports | Upstream reports only after G and H, rate-limited, duplicate-checked against open issues (L) |
+| Stale fixes served after upstream fixed the bug | Version ranges in `target`; packets retired from (J) once `fixed_in_version` ships |
+| Private-code bugs leaking out as "public" packets | `scope` must name a public component; reviewer rejects anything else |
 
 ## 7. Cross-provider angle
 
 Nothing here is provider-specific. A shared, open packet schema (problem, environment, failing test, fix, evidence) would let a fix verified once be usable by any provider that runs the same verification — an open replacement for what public Q&A sites used to provide to the whole ecosystem. An open, MIT-licensed schema and reference verifier would be the natural first step.
 
-## 8. Open questions
+## 8. Incentives: why would anyone do this?
 
-- Who owns a packet derived from a private session — the user, the provider, or the public?
-- Should accepted packets also be published publicly (Stack Overflow-style), so humans and other models benefit, not only one provider?
-- How to credit contributors (reputation, usage credits, public attribution)?
-- How to handle bugs that only reproduce with proprietary dependencies or hardware?
-- What is the right quota: fixed time window, or adaptive based on acceptance rate?
+**Users.** Approving a packet costs ten seconds, but there should still be a reason:
+- Public credit: optional attribution on the archive entry and the upstream issue, like a Stack Overflow answer or a merged PR.
+- Small usage credits or extended limits per accepted packet (accepted, not submitted, so spam earns nothing).
+- The practical reward: the next time anyone, including them, hits that bug, it is already solved.
 
-## 9. Origin of the idea
+**Providers.** The honest tension: verified fix data is a competitive asset, and a provider may prefer to keep it private. Arguments for the open version anyway:
+- All providers face the same knowledge freeze. A shared commons is cheaper than each provider rebuilding a weaker private one.
+- Packets are a source of fresh, contamination-resistant eval data, which every lab needs.
+- An open format can still allow each provider to run its own pipeline. Openness can be adopted in steps: open schema first, then the open archive for packets where users consented.
+
+**Maintainers.** Fewer duplicate, vague bug reports; more verified ones with a failing test attached.
+
+## 9. Open questions
+
+- Who owns a packet derived from a private session: the user, the provider, or the public? What license should the archive use?
+- Will providers adopt a shared format, or each build a private version? Is a neutral steward needed (a foundation, as with OSV or SPDX)?
+- How to handle bugs that only reproduce with proprietary dependencies or special hardware, where the sandbox cannot run them?
+- What is the right quota: a fixed time window, or adaptive based on acceptance rate?
+- How should conflicting packets for the same bug be resolved, e.g. two different workarounds that both pass?
+- How to keep upstream reporting from adding to maintainer burden in practice, not just in principle?
+
+## 10. Origin of the idea
 
 This idea came out of a conversation about why Stack Overflow is fading. People no longer post their problems publicly, because an assistant answers instantly. But the assistant learned from those public posts in the first place. If nobody posts publicly anymore, future models lose their source of new knowledge — unless the private sessions that solve new problems can feed back into the commons in a safe, verified way.
 

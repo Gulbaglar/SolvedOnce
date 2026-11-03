@@ -1,5 +1,5 @@
 {
-  "schema_version": "0.2",
+  "schema_version": "0.3",
   "packet_id": "so_7f3k9q2m8x1v4b6n",
   "created_at": "2026-11-03T06:40:00Z",
   "note": "Illustrative example. The library 'tinycsv', its URLs and this bug are fictional; the format is real.",
@@ -71,6 +71,7 @@
 
   "provenance": {
     "authored_by": "model",
+    "session_ref": "sess_9d2f71c0a8e34b5f",
     "agent": "example-agent",
     "model": "example-model",
     "scrubbing_tools": ["gitleaks", "presidio"]
